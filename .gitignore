@@ -1,0 +1,12 @@
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+gobuy-server # Your executable name
+
+# Build cache, test results, etc.
+/pkg/
+/bin/
+.idea/
+.vscode/
