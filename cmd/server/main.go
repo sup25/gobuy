@@ -6,8 +6,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sup25/gobuy/config/db"
 
+	privateRoutes "github.com/sup25/gobuy/routes/private"
 	publicRoutes "github.com/sup25/gobuy/routes/public"
-	/* privateRoutes "github.com/sup25/gobuy/routes/private" */)
+)
 
 func main() {
 	router := gin.Default()
@@ -27,6 +28,7 @@ func main() {
 
 	// Make sure function is exported (capital P)
 	publicRoutes.PublicRoute(router, mongoClient)
+	privateRoutes.PrivateRoute(router, mongoClient)
 
 	if err := router.Run(":8080"); err != nil {
 		panic(err)

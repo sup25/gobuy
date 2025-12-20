@@ -5,7 +5,8 @@ import (
 	"time"
 
 	"github.com/sup25/gobuy/config/db"
-	"github.com/sup25/gobuy/internal/auth/models"
+	authModels "github.com/sup25/gobuy/internal/auth/models"
+	userModels "github.com/sup25/gobuy/internal/user/models"
 	"github.com/sup25/gobuy/pkg/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -13,27 +14,27 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func CreateUserService(ctx context.Context, req models.RegisterRequest, client *mongo.Client) (models.UserResponse, error) {
+func CreateUserService(ctx context.Context, req authModels.RegisterRequest, client *mongo.Client) (userModels.UserResponse, error) {
 	userCollection := db.OpenCollection("users", client)
 
 	// Check duplicate email
-	var existingUser models.User
+	var existingUser userModels.User
 	err := userCollection.FindOne(ctx, bson.M{"email": req.Email}).Decode(&existingUser)
 	if err == nil {
-		return models.UserResponse{}, utils.NewAppError("email already registered", 400)
+		return userModels.UserResponse{}, utils.NewAppError("email already registered", 400)
 	}
 	if err != mongo.ErrNoDocuments {
-		return models.UserResponse{}, utils.NewAppError("database error", 500)
+		return userModels.UserResponse{}, utils.NewAppError("database error", 500)
 	}
 
 	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return models.UserResponse{}, utils.NewAppError("failed to hash password", 500)
+		return userModels.UserResponse{}, utils.NewAppError("failed to hash password", 500)
 	}
 
 	// Prepare user
-	user := models.User{
+	user := userModels.User{
 		Name:      req.Name,
 		Email:     req.Email,
 		Password:  string(hashedPassword),
@@ -45,7 +46,7 @@ func CreateUserService(ctx context.Context, req models.RegisterRequest, client *
 	// Insert user
 	res, err := userCollection.InsertOne(ctx, user)
 	if err != nil {
-		return models.UserResponse{}, utils.NewAppError("failed to create user", 500)
+		return userModels.UserResponse{}, utils.NewAppError("failed to create user", 500)
 	}
 
 	// Assign MongoDB _id
@@ -57,14 +58,14 @@ func CreateUserService(ctx context.Context, req models.RegisterRequest, client *
 
 func LoginUserService(
 	ctx context.Context,
-	req models.LoginRequest,
+	req authModels.LoginRequest,
 	client *mongo.Client,
 ) (string, string, error) {
 
 	userCollection := db.OpenCollection("users", client)
 
 	// Find user
-	var user models.User
+	var user userModels.User
 	err := userCollection.FindOne(ctx, bson.M{
 		"email": req.Email,
 	}).Decode(&user)
@@ -98,7 +99,7 @@ func LoginUserService(
 	}
 
 	// Store refresh token in database
-	refreshTokenDoc := models.RefreshToken{
+	refreshTokenDoc := authModels.RefreshToken{
 		UserID:    user.ID,
 		TokenHash: string(hashedToken),
 		ExpiresAt: refreshExpiry,

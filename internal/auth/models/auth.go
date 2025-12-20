@@ -39,22 +39,6 @@ type ResetPasswordRequest struct {
 
 // ============ Response DTOs ============
 
-type AuthResponse struct {
-	User         UserResponse `json:"user"`
-	AccessToken  string       `json:"access_token"`
-	RefreshToken string       `json:"refresh_token"`
-}
-
-type UserResponse struct {
-	ID              primitive.ObjectID `json:"id"`
-	Name            string             `json:"name"`
-	Email           string             `json:"email"`
-	Role            string             `json:"role"`
-	Permissions     []string           `json:"permissions"`
-	IsEmailVerified bool               `json:"is_email_verified"`
-	CreatedAt       time.Time          `json:"created_at"`
-}
-
 type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token,omitempty"` // Optional for refresh endpoint
@@ -85,19 +69,4 @@ type PasswordResetToken struct {
 	ExpiresAt time.Time          `bson:"expires_at" json:"expires_at"`
 	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
 	IsUsed    bool               `bson:"is_used" json:"is_used"`
-}
-
-// ============ Helper Methods ============
-
-// Convert User to UserResponse (excludes sensitive fields)
-func (u *User) ToResponse() UserResponse {
-	return UserResponse{
-		ID:              u.ID,
-		Name:            u.Name,
-		Email:           u.Email,
-		Role:            u.Role,
-		Permissions:     u.Permissions,
-		IsEmailVerified: u.IsEmailVerified,
-		CreatedAt:       u.CreatedAt,
-	}
 }
