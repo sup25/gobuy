@@ -48,6 +48,50 @@ func RegisterUserController(client *mongo.Client) gin.HandlerFunc {
 	}
 }
 
+func VerifyEmailController(client *mongo.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := c.Query("token")
+		if token == "" {
+			utils.RespondWithError(c, utils.NewAppError("verification token required", 400))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+
+		err := service.VerifyEmailService(ctx, token, client)
+		if err != nil {
+			utils.RespondWithError(c, err)
+			return
+		}
+
+		utils.SendSuccess(c, http.StatusOK, "Email verified successfully", nil)
+	}
+}
+
+func ResendVerificationEmailController(client *mongo.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Email string `json:"email"`
+		}
+		if err := c.BindJSON(&req); err != nil {
+			utils.RespondWithError(c, utils.NewAppError("invalid request", 400))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+
+		err := service.ResendVerificationEmailService(ctx, req.Email, client)
+		if err != nil {
+			utils.RespondWithError(c, err)
+			return
+		}
+
+		utils.SendSuccess(c, 200, "Verification email sent", nil)
+	}
+}
+
 func LoginUserController(client *mongo.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req models.LoginRequest
@@ -86,5 +130,85 @@ func LoginUserController(client *mongo.Client) gin.HandlerFunc {
 			"access_token":  accessToken,
 			"refresh_token": refreshToken,
 		})
+	}
+}
+
+func GoogleLoginController(client *mongo.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Code string `json:"code" binding:"required"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			utils.RespondWithError(c, utils.NewAppError("code is required", 400))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+
+		// Exchange code for ID token
+		idToken, err := utils.ExchangeCodeForIDToken(req.Code)
+		if err != nil {
+			utils.RespondWithError(c, err)
+			return
+		}
+
+		loginResp, err := service.GoogleLoginService(ctx, idToken, client)
+		if err != nil {
+			utils.RespondWithError(c, err)
+			return
+		}
+
+		utils.SendSuccess(c, 200, "Login successful", loginResp)
+	}
+}
+
+func ForgotPasswordController(client *mongo.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Email string `json:"email"`
+		}
+		if err := c.BindJSON(&req); err != nil {
+			utils.RespondWithError(c, utils.NewAppError("invalid request", 400))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+
+		err := service.ForgotPasswordService(ctx, req.Email, client)
+		if err != nil {
+			utils.RespondWithError(c, err)
+			return
+		}
+
+		utils.SendSuccess(c, 200, "Password reset email sent", nil)
+	}
+}
+
+func ResetPasswordController(client *mongo.Client) gin.HandlerFunc {
+	{
+		return func(c *gin.Context) {
+			var req struct {
+				Password string `json:"password"`
+			}
+			token := c.Query("token")
+			if err := c.BindJSON(&req); err != nil {
+				utils.RespondWithError(c, utils.NewAppError("invalid request", 400))
+				return
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+			defer cancel()
+
+			err := service.ResetPasswordService(ctx, token, req.Password, client)
+			if err != nil {
+				utils.RespondWithError(c, err)
+				return
+			}
+
+			utils.SendSuccess(c, 200, "Password reset successfully", nil)
+		}
 	}
 }

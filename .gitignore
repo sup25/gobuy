@@ -10,3 +10,5 @@ gobuy-server # Your executable name
 /bin/
 .idea/
 .vscode/
+tmp/
+.env

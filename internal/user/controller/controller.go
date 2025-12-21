@@ -2,17 +2,18 @@ package userController
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/sup25/gobuy/internal/user/models"
 	userService "github.com/sup25/gobuy/internal/user/service"
 	"github.com/sup25/gobuy/pkg/utils"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-// GetUserProfileController returns a gin.HandlerFunc
 func GetUserProfileController(client *mongo.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Extract userID from context (set by AuthMiddleware)
@@ -22,20 +23,48 @@ func GetUserProfileController(client *mongo.Client) gin.HandlerFunc {
 			return
 		}
 
-		// Use context with timeout for DB operation
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
 
-		// Call the service function
 		profile, err := userService.GetUserProfileService(ctx, userID.(string), client)
 		if err != nil {
-			utils.RespondWithError(c, err) // service already returns AppError
+			utils.RespondWithError(c, err)
 			return
 		}
 
-		// Send success response
 		utils.SendSuccess(c, http.StatusOK, "User profile fetched successfully", gin.H{
 			"user": profile,
 		})
+	}
+}
+
+func ChangePasswordController(client *mongo.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+
+		var req models.ChangePasswordRequest
+		fmt.Printf("Request body: %+v\n", req)
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			utils.RespondWithError(c, utils.NewAppError("invalid request", http.StatusBadRequest))
+			return
+		}
+
+		// Extract userID from context (set by AuthMiddleware)
+		userID, exists := c.Get("user_id")
+		if !exists {
+			utils.RespondWithError(c, utils.NewAppError("unauthenticated", http.StatusUnauthorized))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+
+		err := userService.ChangePasswordService(ctx, userID.(string), req.OldPassword, req.NewPassword, client)
+		if err != nil {
+			utils.RespondWithError(c, err)
+			return
+		}
+
+		utils.SendSuccess(c, http.StatusOK, "Password changed successfully", nil)
 	}
 }
