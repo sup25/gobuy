@@ -7,23 +7,47 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-type User struct {
-	ID                       primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name                     string             `bson:"name" json:"name"`
-	Email                    string             `bson:"email" json:"email"`
-	Password                 string             `bson:"password" json:"-"`
-	GoogleID                 string             `bson:"google_id,omitempty" json:"google_id,omitempty"`
-	Role                     string             `bson:"role" json:"role"`
-	Permissions              []string           `bson:"permissions" json:"permissions"`
-	IsEmailVerified          bool               `bson:"is_email_verified" json:"is_email_verified"`
-	CreatedAt                time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt                time.Time          `bson:"updated_at" json:"updated_at"`
-	PasswordResetToken       string             `bson:"password_reset_token,omitempty" json:"-"`
-	PasswordResetExpires     time.Time          `bson:"password_reset_expires,omitempty" json:"-"`
-	EmailVerificationToken   string             `bson:"email_verification_token,omitempty" json:"-"`
-	EmailVerificationExpires time.Time          `bson:"email_verification_expires,omitempty" json:"-"`
+type UserRole string
+
+const (
+	RoleSystemAdmin   UserRole = "system_admin"   // platform owner
+	RoleMerchantAdmin UserRole = "merchant_admin" // owner of a merchant
+	RoleManager       UserRole = "manager"        // staff manager
+	RoleStaff         UserRole = "staff"          // normal staff
+	RoleCustomer      UserRole = "customer"       // buyer
+)
+
+var ValidRoles = []UserRole{
+	RoleSystemAdmin,
+	RoleMerchantAdmin,
+	RoleManager,
+	RoleStaff,
+	RoleCustomer,
 }
 
+func (r UserRole) String() string {
+	return string(r)
+}
+
+type User struct {
+	ID                       primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
+	Name                     string              `bson:"name" json:"name"`
+	Email                    string              `bson:"email" json:"email"`
+	Password                 string              `bson:"password" json:"-"`
+	GoogleID                 string              `bson:"google_id,omitempty" json:"google_id,omitempty"`
+	Role                     UserRole            `bson:"role" json:"role"`
+	MerchantID               *primitive.ObjectID `bson:"merchant_id,omitempty" json:"merchant_id,omitempty"`
+	Permissions              []string            `bson:"permissions" json:"permissions"`
+	IsEmailVerified          bool                `bson:"is_email_verified" json:"is_email_verified"`
+	CreatedAt                time.Time           `bson:"created_at" json:"created_at"`
+	UpdatedAt                time.Time           `bson:"updated_at" json:"updated_at"`
+	PasswordResetToken       string              `bson:"password_reset_token,omitempty" json:"-"`
+	PasswordResetExpires     time.Time           `bson:"password_reset_expires,omitempty" json:"-"`
+	EmailVerificationToken   string              `bson:"email_verification_token,omitempty" json:"-"`
+	EmailVerificationExpires time.Time           `bson:"email_verification_expires,omitempty" json:"-"`
+}
+
+// ============ Response DTOs ============
 type LoginResponse struct {
 	User         UserResponse `json:"user"`
 	AccessToken  string       `json:"access_token"`
@@ -38,8 +62,10 @@ type UserResponse struct {
 	Permissions     []string           `json:"permissions"`
 	IsEmailVerified bool               `json:"is_email_verified"`
 	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
 }
 
+// ============ End Response DTOs ============
 type ChangePasswordRequest struct {
 	OldPassword string `json:"old_password" binding:"required"`
 	NewPassword string `json:"new_password" binding:"required,min=6"`
@@ -53,13 +79,19 @@ type GoogleClaims struct {
 }
 
 func (u *User) ToResponse() UserResponse {
+	permissions := u.Permissions
+	if permissions == nil {
+		permissions = []string{}
+	}
+
 	return UserResponse{
 		ID:              u.ID,
 		Name:            u.Name,
 		Email:           u.Email,
-		Role:            u.Role,
-		Permissions:     u.Permissions,
+		Role:            u.Role.String(),
+		Permissions:     permissions,
 		IsEmailVerified: u.IsEmailVerified,
 		CreatedAt:       u.CreatedAt,
+		UpdatedAt:       u.UpdatedAt,
 	}
 }

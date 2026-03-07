@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sup25/gobuy/config/db"
@@ -24,7 +25,7 @@ func CreateUserService(
 
 	userCollection := db.OpenCollection("users", client)
 
-	// 1️⃣ Check duplicate email
+	// Check duplicate email
 	var existingUser userModels.User
 	err := userCollection.FindOne(ctx, bson.M{"email": req.Email}).Decode(&existingUser)
 	if err == nil {
@@ -34,13 +35,13 @@ func CreateUserService(
 		return userModels.UserResponse{}, utils.NewAppError("database error", 500)
 	}
 
-	// 2️⃣ Hash password
+	//  Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return userModels.UserResponse{}, utils.NewAppError("failed to hash password", 500)
 	}
 
-	// 3️⃣ Generate email verification token
+	//  Generate email verification token
 	verificationToken, err := utils.GenerateSecureRandomToken(32)
 	if err != nil {
 		return userModels.UserResponse{}, utils.NewAppError("failed to generate verification token", 500)
@@ -48,12 +49,12 @@ func CreateUserService(
 
 	verificationExpiry := time.Now().Add(24 * time.Hour)
 
-	// 4️⃣ Prepare user
+	//  Prepare user
 	user := userModels.User{
 		Name:     req.Name,
-		Email:    req.Email,
+		Email:    strings.ToLower(strings.TrimSpace(req.Email)),
 		Password: string(hashedPassword),
-		Role:     "USER",
+		Role:     userModels.UserRole(req.Role),
 
 		IsEmailVerified: false,
 
@@ -64,7 +65,7 @@ func CreateUserService(
 		UpdatedAt: time.Now(),
 	}
 
-	// 5️⃣ Insert user
+	//  Insert user
 	res, err := userCollection.InsertOne(ctx, user)
 	if err != nil {
 		return userModels.UserResponse{}, utils.NewAppError("failed to create user", 500)
@@ -80,15 +81,29 @@ func CreateUserService(
 func VerifyEmailService(ctx context.Context, token string, client *mongo.Client) error {
 	userCollection := db.OpenCollection("users", client)
 
-	// Filter user by token and make sure token is not expired
-	filter := bson.M{
+	//  Find user by token (without expiry first)
+	var user bson.M
+	err := userCollection.FindOne(ctx, bson.M{
 		"email_verification_token": token,
-		"email_verification_expires": bson.M{
-			"$gt": time.Now(), // token still valid
-		},
+	}).Decode(&user)
+
+	if err != nil {
+		return utils.NewAppError("invalid verification token", 400)
 	}
 
-	// Update user: mark email verified and remove token
+	// If already verified → return success (idempotent)
+	if isVerified, ok := user["is_email_verified"].(bool); ok && isVerified {
+		return nil
+	}
+
+	// Check expiry manually
+	if expires, ok := user["email_verification_expires"].(primitive.DateTime); ok {
+		if time.UnixMilli(int64(expires)).Before(time.Now()) {
+			return utils.NewAppError("verification token expired", 400)
+		}
+	}
+
+	//  Update user
 	update := bson.M{
 		"$set": bson.M{
 			"is_email_verified": true,
@@ -100,13 +115,9 @@ func VerifyEmailService(ctx context.Context, token string, client *mongo.Client)
 		},
 	}
 
-	result, err := userCollection.UpdateOne(ctx, filter, update)
+	_, err = userCollection.UpdateByID(ctx, user["_id"], update)
 	if err != nil {
 		return utils.NewAppError("database error", 500)
-	}
-
-	if result.MatchedCount == 0 {
-		return utils.NewAppError("invalid or expired verification token", 400)
 	}
 
 	return nil
@@ -352,4 +363,80 @@ func GoogleLoginService(ctx context.Context, idToken string, client *mongo.Clien
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 	}, nil
+}
+
+func RefreshTokenService(
+	ctx context.Context,
+	client *mongo.Client,
+	refreshToken string,
+) (string, string, time.Time, error) {
+
+	collection := db.OpenCollection("refresh_tokens", client)
+
+	// Find all non-revoked refresh tokens
+	cursor, err := collection.Find(ctx, bson.M{"is_revoked": false})
+	if err != nil {
+		return "", "", time.Time{}, utils.NewAppError("DB error", 500)
+	}
+	defer cursor.Close(ctx)
+
+	var stored authModels.RefreshToken
+	found := false
+
+	for cursor.Next(ctx) {
+		var t authModels.RefreshToken
+		if err := cursor.Decode(&t); err != nil {
+			continue
+		}
+
+		// Compare hash
+		if bcrypt.CompareHashAndPassword([]byte(t.TokenHash), []byte(refreshToken)) == nil {
+			stored = t
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return "", "", time.Time{}, utils.NewAppError("Invalid refresh token", 401)
+	}
+
+	if stored.ExpiresAt.Before(time.Now()) {
+		return "", "", time.Time{}, utils.NewAppError("Refresh token expired", 401)
+	}
+
+	// Fetch user
+	userCollection := db.OpenCollection("users", client)
+	var user userModels.User
+	err = userCollection.FindOne(ctx, bson.M{"_id": stored.UserID}).Decode(&user)
+	if err != nil {
+		return "", "", time.Time{}, utils.NewAppError("User not found", 404)
+	}
+
+	// Generate new tokens
+	access, newRefresh, expiry, err := utils.GenerateAuthTokens(user)
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+
+	// Hash new refresh token
+	hashedNew, _ := bcrypt.GenerateFromPassword([]byte(newRefresh), bcrypt.DefaultCost)
+
+	// Update DB
+	_, err = collection.UpdateOne(
+		ctx,
+		bson.M{"_id": stored.ID},
+		bson.M{
+			"$set": bson.M{
+				"token_hash":   string(hashedNew),
+				"expires_at":   expiry,
+				"last_used_at": time.Now(),
+			},
+		},
+	)
+	if err != nil {
+		return "", "", time.Time{}, utils.NewAppError("Failed to rotate token", 500)
+	}
+
+	return access, newRefresh, expiry, nil
 }

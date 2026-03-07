@@ -2,7 +2,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -51,6 +53,8 @@ func RegisterUserController(client *mongo.Client) gin.HandlerFunc {
 func VerifyEmailController(client *mongo.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.Query("token")
+		fmt.Println("Token:", token)
+
 		if token == "" {
 			utils.RespondWithError(c, utils.NewAppError("verification token required", 400))
 			return
@@ -122,9 +126,9 @@ func LoginUserController(client *mongo.Client) gin.HandlerFunc {
 			utils.RespondWithError(c, err)
 			return
 		}
-
-		c.SetCookie("access_token", accessToken, 15*60, "/", "", false, true)
-		c.SetCookie("refresh_token", refreshToken, 7*24*60*60, "/", "", false, true)
+		secure := os.Getenv("ENV") == "production"
+		c.SetCookie("access_token", accessToken, 15*60, "/", "", secure, true)
+		c.SetCookie("refresh_token", refreshToken, 7*24*60*60, "/", "", secure, true)
 
 		utils.SendSuccess(c, http.StatusOK, "User logged in successfully", gin.H{
 			"access_token":  accessToken,
@@ -210,5 +214,54 @@ func ResetPasswordController(client *mongo.Client) gin.HandlerFunc {
 
 			utils.SendSuccess(c, 200, "Password reset successfully", nil)
 		}
+	}
+}
+
+func RefreshTokenController(client *mongo.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+
+		refreshToken, err := c.Cookie("refresh_token")
+		if err != nil {
+			utils.RespondWithError(c,
+				utils.NewAppError("No refresh token", 401))
+			return
+		}
+		fmt.Println("Received refresh token:", refreshToken)
+		access, newRefresh, expiry, err :=
+			service.RefreshTokenService(
+				context.Background(),
+				client,
+				refreshToken,
+			)
+
+		if err != nil {
+			utils.RespondWithError(c, err)
+			return
+		}
+
+		secure := os.Getenv("ENV") == "production"
+
+		c.SetCookie("access_token", access, 900, "/", "", secure, true)
+
+		c.SetCookie(
+			"refresh_token",
+			newRefresh,
+			int(time.Until(expiry).Seconds()),
+			"/",
+			"",
+			secure,
+			true,
+		)
+
+		utils.SendSuccess(c, 200, "Token refreshed", nil)
+	}
+}
+
+func LogoutController() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		secure := os.Getenv("ENV") == "production"
+		c.SetCookie("access_token", "", -1, "/", "", secure, true)
+		c.SetCookie("refresh_token", "", -1, "/", "", secure, true)
+		utils.SendSuccess(c, 200, "Logout successful", nil)
 	}
 }
