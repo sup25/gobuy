@@ -114,7 +114,7 @@ func (c *Checker) isPermissionValidForRole(role models.UserRole, permission Perm
 		}
 	}
 
-	return true
+	return false
 }
 
 // HasPermissionForResource checks permission with merchant scope validation

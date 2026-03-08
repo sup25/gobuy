@@ -10,4 +10,5 @@ func PublicRoute(router *gin.Engine, client *mongo.Client) {
 	public := router.Group("/api/v1")
 	AuthPublicRoutes(public, client)
 	ProductPublicRoutes(public, client)
+	PaymentRoutes(public, client)
 }

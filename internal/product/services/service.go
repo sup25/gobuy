@@ -23,10 +23,9 @@ func AddProductService(
 	userEmail string,
 	userRole string,
 	client *mongo.Client,
+	merchantID primitive.ObjectID,
+
 ) (productModel.ProductResponse, error) {
-	if userRole != "admin" && userRole != "manager" && userRole != "merchant" {
-		return productModel.ProductResponse{}, utils.NewAppError("unauthorized: only admin, manager, or merchant can add products", 403)
-	}
 
 	categoryID, err := primitive.ObjectIDFromHex(req.CategoryID)
 	if err != nil {
@@ -62,6 +61,7 @@ func AddProductService(
 		Slug:        utils.Slugify(req.Name),
 		Status:      req.Status,
 		CategoryID:  categoryID,
+		MerchantID:  merchantID,
 		Category:    productModel.ToCategoryEmbed(&category),
 		CreatedBy:   createdByUser,
 		UpdatedBy:   createdByUser,

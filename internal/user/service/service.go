@@ -83,3 +83,24 @@ func ChangePasswordService(ctx context.Context, userID, oldPassword, newPassword
 
 	return nil
 }
+
+/* GetUserFull returns the full user object (use for internal donot expose in API) */
+func GetUserFull(ctx context.Context, userID string, client *mongo.Client) (*userModels.User, error) {
+	userCollection := db.OpenCollection("users", client)
+
+	objID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, utils.NewAppError("invalid user ID", 400)
+	}
+
+	var user userModels.User
+	err = userCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, utils.NewAppError("user not found", 404)
+		}
+		return nil, utils.NewAppError("database error", 500)
+	}
+
+	return &user, nil
+}

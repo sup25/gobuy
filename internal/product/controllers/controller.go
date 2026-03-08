@@ -7,26 +7,55 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	permissions "github.com/sup25/gobuy/internal/permissions"
 	productModels "github.com/sup25/gobuy/internal/product/model"
 	"github.com/sup25/gobuy/internal/product/services"
+
+	userModels "github.com/sup25/gobuy/internal/user/models"
+	userService "github.com/sup25/gobuy/internal/user/service"
 	"github.com/sup25/gobuy/pkg/utils"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // AddProductController creates a new product
 func AddProductController(client *mongo.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
 		// Extract user info from JWT claims
 		userID := c.GetString("user_id")
 		userName := c.GetString("name")
 		userEmail := c.GetString("email")
 		userRole := c.GetString("role")
 
+		user, err := userService.GetUserFull(ctx, userID, client)
+		if err != nil {
+			utils.RespondWithError(c, err)
+			return
+		}
+		fmt.Printf("user.Role: %q | RoleManager constant: %q | match: %v\n",
+			user.Role,
+			userModels.RoleManager,
+			user.Role == userModels.RoleManager,
+		)
+		checker := permissions.NewChecker()
+		merchantScope := primitive.NilObjectID
+		if user.MerchantID != nil {
+			merchantScope = *user.MerchantID
+		}
+
+		hasPermission := checker.HasPermissionForResource(user, permissions.ProductCreate, merchantScope)
+
+		if !hasPermission {
+			utils.RespondWithError(c, utils.NewAppError(
+				"unauthorized: "+userRole+" does not have permission to add products", 403,
+			))
+			return
+		}
+
 		fmt.Printf("UserID: %s, UserName: %s, UserEmail: %s, UserRole: %s\n",
 			userID, userName, userEmail, userRole)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
-		defer cancel()
 
 		var req productModels.CreateProductRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -34,7 +63,7 @@ func AddProductController(client *mongo.Client) gin.HandlerFunc {
 			return
 		}
 
-		res, err := services.AddProductService(ctx, req, userID, userName, userEmail, userRole, client)
+		res, err := services.AddProductService(ctx, req, userID, userName, userEmail, userRole, client, merchantScope)
 		if err != nil {
 			utils.RespondWithError(c, err)
 			return
